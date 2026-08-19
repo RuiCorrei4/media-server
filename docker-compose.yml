@@ -17,9 +17,6 @@ volumes:
   jellyfin_config:
 
 services:
-  # Cockpit - Web-based Server Management (Note: Cockpit runs natively, not in Docker)
-  # Access at https://SERVER_IP:9090 after installation
-
   # Portainer - Docker Management
   portainer:
     image: portainer/portainer-ce:latest
@@ -56,29 +53,7 @@ services:
     networks:
       - media-network
 
-  # VPN Gateway for QBittorrent
-  gluetun:
-    image: qmcgaw/gluetun:latest
-    container_name: gluetun
-    cap_add:
-      - NET_ADMIN
-    environment:
-      - VPN_SERVICE_PROVIDER=${VPN_SERVICE_PROVIDER:-protonvpn}
-      - VPN_TYPE=${VPN_TYPE:-openvpn}
-      - OPENVPN_USER=${OPENVPN_USER}
-      - OPENVPN_PASSWORD=${OPENVPN_PASSWORD}
-      - SERVER_COUNTRIES=${SERVER_COUNTRIES:-Netherlands}
-      - TZ=${TZ:-Europe/London}
-      - UPDATER_PERIOD=24h
-    ports:
-      - "${QBITTORRENT_PORT:-8080}:8080"  # QBittorrent Web UI
-      - "6881:6881"
-      - "6881:6881/udp"
-    restart: unless-stopped
-    networks:
-      - media-network
-
-  # QBittorrent - Torrent Client
+  # QBittorrent - Torrent Client (NO VPN - Local Only)
   qbittorrent:
     image: lscr.io/linuxserver/qbittorrent:latest
     container_name: qbittorrent
@@ -91,10 +66,13 @@ services:
     volumes:
       - qbittorrent_config:/config
       - ./downloads:/downloads
-    depends_on:
-      - gluetun
-    network_mode: "service:gluetun"
+    ports:
+      - "${QBITTORRENT_PORT:-8080}:8080"
+      - "6881:6881"
+      - "6881:6881/udp"
     restart: unless-stopped
+    networks:
+      - media-network
 
   # Sonarr - TV Shows Manager
   sonarr:
