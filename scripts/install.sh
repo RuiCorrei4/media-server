@@ -1,6 +1,6 @@
 #!/bin/bash
 # install.sh - Main installation script for Media Server
-# Version: 3.0.0 - Added NVIDIA GPU support and Flaresolverr
+# Version: 3.1.0 - Added Cockpit GPU metrics support
 
 set -euo pipefail
 
@@ -101,7 +101,9 @@ install_packages() {
         gcc \
         make \
         pkg-config \
-        linux-headers-$(uname -r)
+        linux-headers-$(uname -r) \
+        pcp \
+        pcp-import-collectl
     
     log_success "Core packages installed"
 }
@@ -134,6 +136,51 @@ install_cockpit() {
         2>/dev/null || log_warning "Some cockpit modules not available"
     
     log_success "Cockpit installation completed"
+}
+
+# Setup Cockpit GPU Metrics
+setup_cockpit_gpu_metrics() {
+    log_info "Setting up Cockpit GPU metrics..."
+    
+    # Check if NVIDIA PMDA exists
+    if [ -d "/var/lib/pcp/pmdas/nvidia" ]; then
+        log_info "Installing NVIDIA PMDA for PCP..."
+        cd /var/lib/pcp/pmdas/nvidia
+        
+        # Install as daemon (default)
+        echo "daemon" | sudo ./Install
+        
+        # Restart PCP services
+        sudo systemctl restart pmcd
+        
+        # Verify NVIDIA metrics are available
+        if pminfo nvidia &> /dev/null; then
+            log_success "NVIDIA GPU metrics installed successfully!"
+            log_info "GPU metrics will appear in Cockpit Performance dashboard"
+        else
+            log_warning "NVIDIA PMDA installed but metrics not detected"
+        fi
+        
+        cd - > /dev/null
+    else
+        log_warning "NVIDIA PMDA not found. Installing from source..."
+        cd /tmp
+        git clone https://github.com/NVIDIA/nvidia-pcp.git
+        cd nvidia-pcp
+        make
+        sudo make install
+        
+        # Register the PMDA
+        echo "daemon" | sudo ./Install || true
+        
+        sudo systemctl restart pmcd
+        cd - > /dev/null
+    fi
+    
+    # Restart Cockpit to detect new metrics
+    sudo systemctl restart cockpit
+    
+    log_success "Cockpit GPU metrics setup complete"
 }
 
 # Install NVIDIA Driver for GTX 1050 Ti
@@ -196,6 +243,10 @@ install_nvidia_container_toolkit() {
     
     log_info "Configuring NVIDIA Container Runtime for Docker..."
     sudo nvidia-ctk runtime configure --runtime=docker
+    
+    # Restart Docker
+    sudo systemctl restart docker
+    
     log_success "NVIDIA Container Toolkit installed and configured."
 }
 
@@ -335,6 +386,13 @@ test_docker() {
 test_nvidia_docker() {
     log_info "Testing NVIDIA GPU access in Docker..."
     
+    # Check if nvidia-smi works
+    if command -v nvidia-smi &> /dev/null; then
+        log_info "NVIDIA driver: $(nvidia-smi --query-gpu=driver_version --format=csv,noheader)"
+        log_info "GPU: $(nvidia-smi --query-gpu=name --format=csv,noheader)"
+    fi
+    
+    # Test Docker GPU access
     if docker run --rm --runtime=nvidia --gpus all nvidia/cuda:12.8.0-base-ubuntu22.04 nvidia-smi &> /dev/null; then
         log_success "GPU is accessible in Docker containers!"
     else
@@ -376,7 +434,7 @@ main() {
     clear
     echo "========================================="
     echo "   Media Server Installation Script"
-    echo "   Version 3.0.0 (NVIDIA + Flaresolverr)"
+    echo "   Version 3.1.0 (Cockpit GPU Metrics)"
     echo "========================================="
     echo
     
@@ -389,6 +447,7 @@ main() {
     install_docker
     install_cockpit
     setup_cockpit
+    setup_cockpit_gpu_metrics
     create_directories
     configure_firewall
     setup_env_file
@@ -417,7 +476,7 @@ main() {
     echo "   docker-compose up -d"
     echo
     echo "5. Access your services:"
-    echo "   - Cockpit:      https://${server_ip}:9090"
+    echo "   - Cockpit:      https://${server_ip}:9090 (GPU metrics available!)"
     echo "   - Portainer:    https://${server_ip}:9443"
     echo "   - Homarr:       http://${server_ip}:7575"
     echo "   - QBittorrent:  http://${server_ip}:8080 (admin/adminadmin)"
@@ -429,6 +488,9 @@ main() {
     echo
     echo "6. Configure Prowlarr to use Flaresolverr:"
     echo "   Settings > Indexers > Flaresolverr URL: http://flaresolverr:8191"
+    echo
+    echo "7. GPU metrics in Cockpit:"
+    echo "   Cockpit > Performance dashboard > GPU metrics"
     echo
     log_warning "Important: Log out and log back in for Docker group changes to take effect"
     log_warning "Important: Change default passwords especially for QBittorrent!"
