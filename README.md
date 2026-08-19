@@ -32,3 +32,7 @@ A complete home media server solution with automated downloads, media management
 ```bash
 git clone https://github.com/RuiCorrei4/media-server.git
 cd media-server****
+
+chmod +x scripts/*.sh
+
+./scripts/install.sh
