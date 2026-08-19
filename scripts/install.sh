@@ -187,6 +187,7 @@ setup_cockpit_gpu_metrics() {
 install_nvidia_driver() {
     log_info "Installing NVIDIA driver for GTX 1050 Ti..."
     
+    # Check if already installed
     if command -v nvidia-smi &> /dev/null; then
         log_warning "NVIDIA driver is already installed:"
         nvidia-smi --query-gpu=driver_version --format=csv,noheader
@@ -198,13 +199,36 @@ install_nvidia_driver() {
     wget -N https://us.download.nvidia.com/XFree86/Linux-x86_64/570.86.16/NVIDIA-Linux-x86_64-570.86.16.run
     chmod +x NVIDIA-Linux-x86_64-570.86.16.run
     
-    log_info "Blacklisting nouveau driver..."
+    log_info "Blacklisting nouveau driver (prevents loading on next boot)..."
     sudo bash -c "echo 'blacklist nouveau' > /etc/modprobe.d/blacklist-nvidia-nouveau.conf"
     sudo bash -c "echo 'options nouveau modeset=0' >> /etc/modprobe.d/blacklist-nvidia-nouveau.conf"
     sudo update-initramfs -u
     
+    log_info "Checking if nouveau driver is currently loaded in the running kernel..."
+    if lsmod | grep -q nouveau; then
+        log_warning "Nouveau driver is currently loaded. Attempting to unload it now..."
+        
+        # Stop any graphical display managers that might hold the GPU
+        sudo systemctl stop gdm3 2>/dev/null || true
+        sudo systemctl stop lightdm 2>/dev/null || true
+        sudo systemctl stop sddm 2>/dev/null || true
+        sudo systemctl stop display-manager 2>/dev/null || true
+        
+        # Try to remove the nouveau module
+        if sudo modprobe -r nouveau 2>/dev/null || sudo rmmod nouveau 2>/dev/null; then
+            log_success "Nouveau driver unloaded successfully."
+        else
+            log_error "Failed to unload nouveau driver. It may be in use by another process."
+            log_error "Since the blacklist is configured, please reboot your system and re-run this script."
+            log_error "After reboot, nouveau will be gone and the installation will proceed cleanly."
+            exit 1
+        fi
+    else
+        log_success "Nouveau driver is not loaded."
+    fi    
     log_info "Installing NVIDIA driver (this may take a few minutes)..."
-    sudo ./NVIDIA-Linux-x86_64-570.86.16.run --dkms --silent --no-x-check
+    # --no-nouveau-check added as a safety net in case unloading left a trace
+    sudo ./NVIDIA-Linux-x86_64-570.86.16.run --dkms --silent --no-x-check --no-nouveau-check
     
     log_success "NVIDIA driver installed successfully!"
     log_warning "A system reboot is required to complete the driver installation."
