@@ -90,7 +90,7 @@ services:
       - TORRENTING_PORT=6881
     volumes:
       - qbittorrent_config:/config
-      - ./downloads:/downloads
+      - /mnt/media/downloads:/downloads
     depends_on:
       - gluetun
     network_mode: "service:gluetun"
@@ -106,8 +106,8 @@ services:
       - TZ=${TZ:-Europe/London}
     volumes:
       - sonarr_config:/config
-      - ./media/tv:/tv
-      - ./downloads:/downloads
+      - /mnt/media/tv-shows:/tv-shows
+      - /mnt/media/downloads:/downloads
     ports:
       - "${SONARR_PORT:-8989}:8989"
     restart: unless-stopped
@@ -124,8 +124,8 @@ services:
       - TZ=${TZ:-Europe/London}
     volumes:
       - radarr_config:/config
-      - ./media/movies:/movies
-      - ./downloads:/downloads
+      - /mnt/media/movies:/movies
+      - /mnt/media/downloads:/downloads
     ports:
       - "${RADARR_PORT:-7878}:7878"
     restart: unless-stopped
@@ -159,9 +159,9 @@ services:
       - JELLYFIN_PublishedServerUrl=${SERVER_URL:-http://localhost}
     volumes:
       - jellyfin_config:/config
-      - ./media/tv:/data/tvshows
-      - ./media/movies:/data/movies
-      - ./media/music:/data/music
+      - /mnt/media/movies:/media/movies:ro
+      - /mnt/media/tv-shows:/media/tv-shows:ro
+      - /mnt/media/music:/media/music:roic
     ports:
       - "${JELLYFIN_PORT:-8096}:8096"
       - "${JELLYFIN_HTTPS_PORT:-8920}:8920"
