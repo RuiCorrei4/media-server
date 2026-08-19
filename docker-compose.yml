@@ -126,15 +126,31 @@ services:
     networks:
       - media-network
 
-  # Jellyfin - Media Server
+  # Flaresolverr - Cloudflare Bypass
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    container_name: flaresolverr
+    environment:
+      - LOG_LEVEL=info
+      - CAPTCHA_SOLVER=none
+    restart: unless-stopped
+    ports:
+      - "${FLARESOLVERR_PORT:-8191}:8191"
+    networks:
+      - media-network
+
+  # Jellyfin - Media Server (with NVIDIA GPU Support)
   jellyfin:
     image: lscr.io/linuxserver/jellyfin:latest
     container_name: jellyfin
+    runtime: nvidia
     environment:
       - PUID=${PUID:-1000}
       - PGID=${PGID:-1000}
       - TZ=${TZ:-Europe/London}
       - JELLYFIN_PublishedServerUrl=${SERVER_URL:-http://localhost}
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
     volumes:
       - jellyfin_config:/config
       - /mnt/media/movies:/media/movies:ro
@@ -143,8 +159,7 @@ services:
     ports:
       - "${JELLYFIN_PORT:-8096}:8096"
       - "${JELLYFIN_HTTPS_PORT:-8920}:8920"
-    devices:
-      - /dev/dri:/dev/dri  # Hardware transcoding
+    # Remove the devices section below (it's for Intel integrated graphics)
     restart: unless-stopped
     networks:
       - media-network
