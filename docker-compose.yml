@@ -70,6 +70,7 @@ services:
       - ./config/sonarr:/config
       - ./data/torrents:/data/torrents
       - ./data/usenet:/data/usenet
+      - ./downloads:/downloads 
       - ./media/tv:/media/tv
     ports:
       - "8989:8989"
@@ -90,6 +91,7 @@ services:
       - ./config/radarr:/config
       - ./data/torrents:/data/torrents
       - ./data/usenet:/data/usenet
+      - ./downloads:/downloads  
       - ./media/movies:/media/movies
     ports:
       - "7878:7878"
