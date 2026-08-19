@@ -1,6 +1,6 @@
 #!/bin/bash
 # install.sh - Main installation script for Media Server
-# Version: 2.1.0 - Fixed cockpit package names for Debian 13
+# Version: 3.0.0 - Added NVIDIA GPU support and Flaresolverr
 
 set -euo pipefail
 
@@ -95,7 +95,13 @@ install_packages() {
         wget \
         nano \
         jq \
-        openssh-server
+        openssh-server \
+        build-essential \
+        dkms \
+        gcc \
+        make \
+        pkg-config \
+        linux-headers-$(uname -r)
     
     log_success "Core packages installed"
 }
@@ -107,17 +113,11 @@ install_cockpit() {
     # Install cockpit base package
     sudo apt install -y cockpit
     
-    # Install cockpit modules (correct package names for Debian 13)
-    # cockpit-docker is now included in cockpit-podman or cockpit itself
-    # For Docker management, we need cockpit-docker which might be named differently
-    
-    # Try to install cockpit-docker, if it fails, try alternatives
+    # Install cockpit modules
     if sudo apt install -y cockpit-docker 2>/dev/null; then
         log_success "cockpit-docker installed"
     else
         log_warning "cockpit-docker not found, trying alternatives..."
-        
-        # Try cockpit-podman (replacement for docker module)
         if sudo apt install -y cockpit-podman 2>/dev/null; then
             log_success "cockpit-podman installed (Docker replacement)"
         else
@@ -126,7 +126,6 @@ install_cockpit() {
         fi
     fi
     
-    # Install other cockpit modules
     sudo apt install -y \
         cockpit-networkmanager \
         cockpit-storaged \
@@ -135,6 +134,69 @@ install_cockpit() {
         2>/dev/null || log_warning "Some cockpit modules not available"
     
     log_success "Cockpit installation completed"
+}
+
+# Install NVIDIA Driver for GTX 1050 Ti
+install_nvidia_driver() {
+    log_info "Installing NVIDIA driver for GTX 1050 Ti..."
+    
+    if command -v nvidia-smi &> /dev/null; then
+        log_warning "NVIDIA driver is already installed:"
+        nvidia-smi --query-gpu=driver_version --format=csv,noheader
+        return 0
+    fi
+    
+    log_info "Downloading NVIDIA driver 570.86.16..."
+    cd ~
+    wget -N https://us.download.nvidia.com/XFree86/Linux-x86_64/570.86.16/NVIDIA-Linux-x86_64-570.86.16.run
+    chmod +x NVIDIA-Linux-x86_64-570.86.16.run
+    
+    log_info "Blacklisting nouveau driver..."
+    sudo bash -c "echo 'blacklist nouveau' > /etc/modprobe.d/blacklist-nvidia-nouveau.conf"
+    sudo bash -c "echo 'options nouveau modeset=0' >> /etc/modprobe.d/blacklist-nvidia-nouveau.conf"
+    sudo update-initramfs -u
+    
+    log_info "Installing NVIDIA driver (this may take a few minutes)..."
+    sudo ./NVIDIA-Linux-x86_64-570.86.16.run --dkms --silent --no-x-check
+    
+    log_success "NVIDIA driver installed successfully!"
+    log_warning "A system reboot is required to complete the driver installation."
+}
+
+# Install NVIDIA Container Toolkit
+install_nvidia_container_toolkit() {
+    log_info "Installing NVIDIA Container Toolkit..."
+    
+    if command -v nvidia-ctk &> /dev/null; then
+        log_warning "NVIDIA Container Toolkit already installed."
+        return 0
+    fi
+    
+    log_info "Downloading NVIDIA Container Toolkit v1.20.0..."
+    cd ~
+    wget -N https://github.com/NVIDIA/nvidia-container-toolkit/releases/download/v1.20.0/nvidia-container-toolkit_1.20.0_deb_amd64.tar.gz
+    
+    log_info "Extracting archive..."
+    tar -xzf nvidia-container-toolkit_1.20.0_deb_amd64.tar.gz
+    
+    DEB_DIR=$(find . -path "*/ubuntu18.04/amd64" -type d | head -1)
+    
+    if [ -d "$DEB_DIR" ]; then
+        cd "$DEB_DIR"
+        log_info "Installing NVIDIA Container Toolkit packages..."
+        sudo dpkg -i *.deb 2>/dev/null || sudo apt --fix-broken install -y
+        cd ~
+    else
+        log_error "Could not find extracted .deb files. Installing from apt repository..."
+        curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+        echo "deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://nvidia.github.io/libnvidia-container/stable/deb/debian12 /" | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+        sudo apt update
+        sudo apt install -y nvidia-container-toolkit
+    fi
+    
+    log_info "Configuring NVIDIA Container Runtime for Docker..."
+    sudo nvidia-ctk runtime configure --runtime=docker
+    log_success "NVIDIA Container Toolkit installed and configured."
 }
 
 # Install Docker
@@ -149,12 +211,10 @@ install_docker() {
         sudo sh /tmp/get-docker.sh
         rm /tmp/get-docker.sh
         
-        # Add user to docker group
         sudo usermod -aG docker "$USER"
         log_success "Docker installed successfully"
     fi
     
-    # Install Docker Compose
     if command -v docker-compose &> /dev/null; then
         log_warning "Docker Compose is already installed"
         docker-compose --version
@@ -169,14 +229,9 @@ install_docker() {
 # Enable and start Cockpit
 setup_cockpit() {
     log_info "Setting up Cockpit..."
-    
-    # Enable Cockpit service
     sudo systemctl enable --now cockpit.socket
     sudo systemctl start cockpit
-    
-    # Allow Cockpit through firewall
     sudo ufw allow 9090/tcp
-    
     log_success "Cockpit enabled and running"
     log_info "Access Cockpit at: https://$(hostname -I | awk '{print $1}'):9090"
 }
@@ -185,18 +240,13 @@ setup_cockpit() {
 create_directories() {
     log_info "Creating directory structure..."
     
-    # Base directories
     mkdir -p config data downloads media
     mkdir -p data/{torrents,usenet}
     mkdir -p downloads/{complete,incomplete}
     mkdir -p media/{movies,tv,music}
-    
-    # Config directories for each service
     mkdir -p config/{portainer,homarr,qbittorrent,sonarr,radarr,prowlarr,jellyfin}
     
-    # Set proper permissions
     chmod -R 755 config data downloads media
-    
     log_success "Directory structure created"
 }
 
@@ -204,17 +254,10 @@ create_directories() {
 configure_firewall() {
     log_info "Configuring firewall for local network access..."
     
-    # Enable UFW
     sudo ufw --force enable
-    
-    # Allow SSH
     sudo ufw allow OpenSSH
-    
-    # Allow Cockpit
     sudo ufw allow 9090/tcp
     
-    # Allow services on local network only
-    # Get local network subnet
     LOCAL_IP=$(hostname -I | awk '{print $1}')
     if [[ $LOCAL_IP == 192.168.* ]]; then
         LOCAL_SUBNET="192.168.0.0/16"
@@ -229,17 +272,11 @@ configure_firewall() {
     log_info "Using local subnet: $LOCAL_SUBNET"
     
     # Allow service ports from local network
-    sudo ufw allow from $LOCAL_SUBNET to any port 9443 proto tcp
-    sudo ufw allow from $LOCAL_SUBNET to any port 7575 proto tcp
-    sudo ufw allow from $LOCAL_SUBNET to any port 8080 proto tcp
-    sudo ufw allow from $LOCAL_SUBNET to any port 8989 proto tcp
-    sudo ufw allow from $LOCAL_SUBNET to any port 7878 proto tcp
-    sudo ufw allow from $LOCAL_SUBNET to any port 9696 proto tcp
-    sudo ufw allow from $LOCAL_SUBNET to any port 8096 proto tcp
+    for port in 9443 7575 8080 8989 7878 9696 8096 8191; do
+        sudo ufw allow from $LOCAL_SUBNET to any port $port proto tcp
+    done
     
-    # Reload firewall
     sudo ufw reload
-    
     log_success "Firewall configured for local access only"
 }
 
@@ -251,11 +288,26 @@ setup_env_file() {
         if [[ -f .env.example ]]; then
             cp .env.example .env
             log_warning "Created .env file from template"
-            log_warning "Please edit .env with your settings before starting services"
         else
-            log_error ".env.example not found"
-            exit 1
+            log_info "Creating .env file directly..."
+            cat > .env << EOF
+# Media Server Environment Configuration
+PUID=1000
+PGID=1000
+TZ=$(timedatectl show --property=Timezone --value)
+SERVER_URL=http://$(hostname -I | awk '{print $1}')
+PORTAINER_PORT=9443
+HOMARR_PORT=7575
+QBITTORRENT_PORT=8080
+SONARR_PORT=8989
+RADARR_PORT=7878
+PROWLARR_PORT=9696
+FLARESOLVERR_PORT=8191
+JELLYFIN_PORT=8096
+JELLYFIN_HTTPS_PORT=8920
+EOF
         fi
+        log_warning "Please review .env file before starting services"
     else
         log_info ".env file already exists"
     fi
@@ -265,14 +317,12 @@ setup_env_file() {
 test_docker() {
     log_info "Testing Docker installation..."
     
-    # Test Docker
     if ! docker info &> /dev/null; then
         log_error "Docker is not running or user not in docker group"
         log_info "Please log out and log back in, then run: docker info"
         exit 1
     fi
     
-    # Test Docker Compose
     if ! docker-compose version &> /dev/null; then
         log_error "Docker Compose is not working"
         exit 1
@@ -281,29 +331,37 @@ test_docker() {
     log_success "Docker is working correctly"
 }
 
+# Test NVIDIA GPU access
+test_nvidia_docker() {
+    log_info "Testing NVIDIA GPU access in Docker..."
+    
+    if docker run --rm --runtime=nvidia --gpus all nvidia/cuda:12.8.0-base-ubuntu22.04 nvidia-smi &> /dev/null; then
+        log_success "GPU is accessible in Docker containers!"
+    else
+        log_warning "GPU not accessible in Docker. You may need to reboot or check the runtime."
+    fi
+}
+
 # Create backup script
 create_backup_script() {
     log_info "Creating backup script..."
     
+    mkdir -p scripts
+    
     cat > scripts/backup.sh << 'EOF'
 #!/bin/bash
-# backup.sh - Backup script for Media Server configurations
-
 BACKUP_DIR="../backups"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 BACKUP_FILE="media-server-backup_${TIMESTAMP}.tar.gz"
 
-# Create backup directory
 mkdir -p "${BACKUP_DIR}"
 
-# Backup configuration files and docker-compose.yml
 tar -czf "${BACKUP_DIR}/${BACKUP_FILE}" \
     docker-compose.yml \
     .env \
     config/ \
     2>/dev/null
 
-# Remove backups older than 30 days
 find "${BACKUP_DIR}" -type f -name "media-server-backup_*.tar.gz" -mtime +30 -delete
 
 echo "Backup created: ${BACKUP_DIR}/${BACKUP_FILE}"
@@ -318,24 +376,26 @@ main() {
     clear
     echo "========================================="
     echo "   Media Server Installation Script"
+    echo "   Version 3.0.0 (NVIDIA + Flaresolverr)"
     echo "========================================="
     echo
     
-    # Run installation steps
     check_root
     check_requirements
     update_system
     install_packages
-    install_cockpit
+    install_nvidia_driver
+    install_nvidia_container_toolkit
     install_docker
+    install_cockpit
     setup_cockpit
     create_directories
     configure_firewall
     setup_env_file
     test_docker
+    test_nvidia_docker
     create_backup_script
     
-    # Get server IP
     server_ip=$(hostname -I | awk '{print $1}')
     
     echo
@@ -344,28 +404,35 @@ main() {
     echo "========================================="
     echo
     log_success "Next steps:"
-    echo "1. Edit .env file with your settings:"
+    echo "1. Reboot your system to complete NVIDIA driver setup:"
+    echo "   sudo reboot"
+    echo
+    echo "2. After reboot, navigate to the media-server directory:"
+    echo "   cd ~/media-server"
+    echo
+    echo "3. Edit .env file with your settings (if needed):"
     echo "   nano .env"
     echo
-    echo "2. (Optional) Setup SSH key authentication:"
-    echo "   ./scripts/setup-ssh.sh"
-    echo
-    echo "3. Start your services:"
+    echo "4. Start your services:"
     echo "   docker-compose up -d"
     echo
-    echo "4. Access your services:"
-    echo "   - Cockpit: https://${server_ip}:9090"
-    echo "   - Portainer: https://${server_ip}:9443"
-    echo "   - Homarr: http://${server_ip}:7575"
-    echo "   - QBittorrent: http://${server_ip}:8080"
-    echo "   - Sonarr: http://${server_ip}:8989"
-    echo "   - Radarr: http://${server_ip}:7878"
-    echo "   - Prowlarr: http://${server_ip}:9696"
-    echo "   - Jellyfin: http://${server_ip}:8096"
+    echo "5. Access your services:"
+    echo "   - Cockpit:      https://${server_ip}:9090"
+    echo "   - Portainer:    https://${server_ip}:9443"
+    echo "   - Homarr:       http://${server_ip}:7575"
+    echo "   - QBittorrent:  http://${server_ip}:8080 (admin/adminadmin)"
+    echo "   - Sonarr:       http://${server_ip}:8989"
+    echo "   - Radarr:       http://${server_ip}:7878"
+    echo "   - Prowlarr:     http://${server_ip}:9696"
+    echo "   - Flaresolverr: http://${server_ip}:8191"
+    echo "   - Jellyfin:     http://${server_ip}:8096"
+    echo
+    echo "6. Configure Prowlarr to use Flaresolverr:"
+    echo "   Settings > Indexers > Flaresolverr URL: http://flaresolverr:8191"
     echo
     log_warning "Important: Log out and log back in for Docker group changes to take effect"
+    log_warning "Important: Change default passwords especially for QBittorrent!"
     echo
 }
 
-# Run main function
 main "$@"
