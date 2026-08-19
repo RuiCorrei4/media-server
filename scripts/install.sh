@@ -103,7 +103,7 @@ install_packages() {
         pkg-config \
         linux-headers-$(uname -r) \
         pcp \
-        pcp-import-collectl
+        pcp-import-collectl2pcp
     
     log_success "Core packages installed"
 }
