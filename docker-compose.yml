@@ -1,184 +1,158 @@
 version: '3.8'
 
+networks:
+  media-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+volumes:
+  portainer_data:
+  homarr_data:
+  qbittorrent_config:
+  sonarr_config:
+  radarr_config:
+  prowlarr_config:
+  jellyfin_config:
+
 services:
-  # Portainer - Docker Management UI
+  # Portainer - Docker Management
   portainer:
     image: portainer/portainer-ce:latest
     container_name: portainer
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
-    networks:
-      - media-network
+    environment:
+      - TZ=${TZ:-Europe/London}
     volumes:
       - /etc/localtime:/etc/localtime:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./config/portainer:/data
+      - portainer_data:/data
     ports:
-      - "9443:9443"
-    environment:
-      - TZ=${TZ:-UTC}
+      - "${PORTAINER_PORT:-9443}:9443"
+    networks:
+      - media-network
 
   # Homarr - Dashboard
   homarr:
     image: ghcr.io/ajnart/homarr:latest
     container_name: homarr
     restart: unless-stopped
-    networks:
-      - media-network
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - ./config/homarr:/app/data/configs
-      - ./config/homarr/icons:/app/public/icons
-    ports:
-      - "7575:7575"
     environment:
-      - TZ=${TZ:-UTC}
+      - TZ=${TZ:-Europe/London}
       - PUID=${PUID:-1000}
       - PGID=${PGID:-1000}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - homarr_data:/app/data/configs
+      - homarr_data:/app/public/icons
+    ports:
+      - "${HOMARR_PORT:-7575}:7575"
+    networks:
+      - media-network
 
-  # qBittorrent - Torrent Client
+  # QBittorrent - Torrent Client
   qbittorrent:
     image: lscr.io/linuxserver/qbittorrent:latest
     container_name: qbittorrent
+    environment:
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - TZ=${TZ:-Europe/London}
+      - WEBUI_PORT=8080
+      - TORRENTING_PORT=6881
+    volumes:
+      - qbittorrent_config:/config
+      - ./downloads:/downloads
+    ports:
+      - "${QBITTORRENT_PORT:-8080}:8080"
+      - "6881:6881"
+      - "6881:6881/udp"
     restart: unless-stopped
     networks:
       - media-network
-    volumes:
-      - /etc/localtime:/etc/localtime:ro
-      - ./config/qbittorrent:/config
-      - ./downloads:/downloads
-    ports:
-      - "8080:8080"
-      - "6881:6881"
-      - "6881:6881/udp"
-    environment:
-      - TZ=${TZ:-UTC}
-      - PUID=${PUID:-1000}
-      - PGID=${PGID:-1000}
-      - WEBUI_PORT=8080
 
   # Sonarr - TV Shows Manager
   sonarr:
     image: lscr.io/linuxserver/sonarr:latest
     container_name: sonarr
+    environment:
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - TZ=${TZ:-Europe/London}
+    volumes:
+      - sonarr_config:/config
+      - ./media/tv:/tv
+      - ./downloads:/downloads
+    ports:
+      - "${SONARR_PORT:-8989}:8989"
     restart: unless-stopped
     networks:
       - media-network
-    volumes:
-      - /etc/localtime:/etc/localtime:ro
-      - ./config/sonarr:/config
-      - ./data/torrents:/data/torrents
-      - ./data/usenet:/data/usenet
-      - ./downloads:/downloads 
-      - ./media/tv:/media/tv
-    ports:
-      - "8989:8989"
-    environment:
-      - TZ=${TZ:-UTC}
-      - PUID=${PUID:-1000}
-      - PGID=${PGID:-1000}
 
   # Radarr - Movies Manager
   radarr:
     image: lscr.io/linuxserver/radarr:latest
     container_name: radarr
+    environment:
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - TZ=${TZ:-Europe/London}
+    volumes:
+      - radarr_config:/config
+      - ./media/movies:/movies
+      - ./downloads:/downloads
+    ports:
+      - "${RADARR_PORT:-7878}:7878"
     restart: unless-stopped
     networks:
       - media-network
-    volumes:
-      - /etc/localtime:/etc/localtime:ro
-      - ./config/radarr:/config
-      - ./data/torrents:/data/torrents
-      - ./data/usenet:/data/usenet
-      - ./downloads:/downloads  
-      - ./media/movies:/media/movies
-    ports:
-      - "7878:7878"
-    environment:
-      - TZ=${TZ:-UTC}
-      - PUID=${PUID:-1000}
-      - PGID=${PGID:-1000}
 
   # Prowlarr - Indexer Manager
   prowlarr:
     image: lscr.io/linuxserver/prowlarr:latest
     container_name: prowlarr
-    restart: unless-stopped
-    networks:
-      - media-network
-    dns:
-      - 8.8.8.8        # Google DNS
-      - 1.1.1.1        # Cloudflare DNS
-      - 9.9.9.9        # Quad9 DNS
-    volumes:
-      - /etc/localtime:/etc/localtime:ro
-      - ./config/prowlarr:/config
-    ports:
-      - "9696:9696"
     environment:
-      - TZ=${TZ:-UTC}
       - PUID=${PUID:-1000}
       - PGID=${PGID:-1000}
-
-  # Flaresolverr - Bypass Cloudflare
-  flaresolverr:
-    image: ghcr.io/flaresolverr/flaresolverr:latest
-    container_name: flaresolverr
+      - TZ=${TZ:-Europe/London}
+    volumes:
+      - prowlarr_config:/config
+    ports:
+      - "${PROWLARR_PORT:-9696}:9696"
     restart: unless-stopped
     networks:
       - media-network
-    ports:
-      - "8191:8191"
-    environment:
-      - TZ=${TZ:-UTC}
-      - LOG_LEVEL=info
-      - CAPTCHA_SOLVER=none
 
-  # Jellyfin - Media Server
+  # Jellyfin - Media Server with NVIDIA GTX 1050 Ti
   jellyfin:
-    image: jellyfin/jellyfin:latest
+    image: lscr.io/linuxserver/jellyfin:latest
     container_name: jellyfin
-    restart: unless-stopped
-    networks:
-      - media-network
-    volumes:
-      - /etc/localtime:/etc/localtime:ro
-      - ./config/jellyfin:/config
-      - ./media:/media
-      - ./cache:/cache
-    ports:
-      - "8096:8096"
-      - "8920:8920"
     environment:
-      - TZ=${TZ:-UTC}
       - PUID=${PUID:-1000}
       - PGID=${PGID:-1000}
+      - TZ=${TZ:-Europe/London}
+      - JELLYFIN_PublishedServerUrl=${SERVER_URL:-http://localhost}
+      # NVIDIA specific environment variables
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,video,utility
+    volumes:
+      - jellyfin_config:/config
+      - ./media/tv:/data/tvshows
+      - ./media/movies:/data/movies
+      - ./media/music:/data/music
+    ports:
+      - "${JELLYFIN_PORT:-8096}:8096"
+      - "${JELLYFIN_HTTPS_PORT:-8920}:8920"
     deploy:
       resources:
         reservations:
           devices:
             - driver: nvidia
-              count: all
+              count: 1
               capabilities: [gpu]
-
-  # Jellyseerr - Media Request Management
-  jellyseerr:
-    image: fallenbagel/jellyseerr:latest
-    container_name: jellyseerr
     restart: unless-stopped
     networks:
       - media-network
-    volumes:
-      - /etc/localtime:/etc/localtime:ro
-      - ./config/jellyseerr:/app/config
-    ports:
-      - "5055:5055"
-    environment:
-      - TZ=${TZ:-UTC}
-      - PUID=${PUID:-1000}
-      - PGID=${PGID:-1000}
-
-networks:
-  media-network:
-    driver: bridge
