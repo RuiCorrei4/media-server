@@ -105,6 +105,10 @@ services:
     restart: unless-stopped
     networks:
       - media-network
+    dns:
+      - 8.8.8.8        # Google DNS
+      - 1.1.1.1        # Cloudflare DNS
+      - 9.9.9.9        # Quad9 DNS
     volumes:
       - /etc/localtime:/etc/localtime:ro
       - ./config/prowlarr:/config
