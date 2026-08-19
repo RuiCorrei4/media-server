@@ -36,3 +36,9 @@ cd media-server****
 chmod +x scripts/*.sh
 
 ./scripts/install.sh
+
+# First, copy the example to create your actual .env
+cp .env.example .env
+
+# Edit the .env file
+nano .env
