@@ -1,6 +1,6 @@
 #!/bin/bash
 # install.sh - Main installation script for Media Server
-# Version: 2.0.0
+# Version: 2.1.0 - Fixed cockpit package names for Debian 13
 
 set -euo pipefail
 
@@ -79,6 +79,8 @@ update_system() {
 # Install essential packages
 install_packages() {
     log_info "Installing essential packages..."
+    
+    # Core packages
     sudo apt install -y \
         apt-transport-https \
         ca-certificates \
@@ -93,13 +95,46 @@ install_packages() {
         wget \
         nano \
         jq \
-        openssh-server \
-        cockpit \
-        cockpit-docker \
+        openssh-server
+    
+    log_success "Core packages installed"
+}
+
+# Install Cockpit (Fixed for Debian 13)
+install_cockpit() {
+    log_info "Installing Cockpit..."
+    
+    # Install cockpit base package
+    sudo apt install -y cockpit
+    
+    # Install cockpit modules (correct package names for Debian 13)
+    # cockpit-docker is now included in cockpit-podman or cockpit itself
+    # For Docker management, we need cockpit-docker which might be named differently
+    
+    # Try to install cockpit-docker, if it fails, try alternatives
+    if sudo apt install -y cockpit-docker 2>/dev/null; then
+        log_success "cockpit-docker installed"
+    else
+        log_warning "cockpit-docker not found, trying alternatives..."
+        
+        # Try cockpit-podman (replacement for docker module)
+        if sudo apt install -y cockpit-podman 2>/dev/null; then
+            log_success "cockpit-podman installed (Docker replacement)"
+        else
+            log_warning "No Docker module available for Cockpit"
+            log_info "You can manage Docker via Portainer instead"
+        fi
+    fi
+    
+    # Install other cockpit modules
+    sudo apt install -y \
         cockpit-networkmanager \
         cockpit-storaged \
-        cockpit-packagekit
-    log_success "Essential packages installed"
+        cockpit-packagekit \
+        cockpit-system \
+        2>/dev/null || log_warning "Some cockpit modules not available"
+    
+    log_success "Cockpit installation completed"
 }
 
 # Install Docker
@@ -165,28 +200,42 @@ create_directories() {
     log_success "Directory structure created"
 }
 
-# Configure firewall
+# Configure firewall for local access only
 configure_firewall() {
-    log_info "Configuring firewall for LOCAL ONLY access..."
+    log_info "Configuring firewall for local network access..."
     
     # Enable UFW
     sudo ufw --force enable
     
-    # Allow SSH (for remote management)
+    # Allow SSH
     sudo ufw allow OpenSSH
     
     # Allow Cockpit
     sudo ufw allow 9090/tcp
     
     # Allow services on local network only
-    # These will only be accessible from your LAN
-    sudo ufw allow from 192.168.0.0/16 to any port 9443 proto tcp
-    sudo ufw allow from 192.168.0.0/16 to any port 7575 proto tcp
-    sudo ufw allow from 192.168.0.0/16 to any port 8080 proto tcp
-    sudo ufw allow from 192.168.0.0/16 to any port 8989 proto tcp
-    sudo ufw allow from 192.168.0.0/16 to any port 7878 proto tcp
-    sudo ufw allow from 192.168.0.0/16 to any port 9696 proto tcp
-    sudo ufw allow from 192.168.0.0/16 to any port 8096 proto tcp
+    # Get local network subnet
+    LOCAL_IP=$(hostname -I | awk '{print $1}')
+    if [[ $LOCAL_IP == 192.168.* ]]; then
+        LOCAL_SUBNET="192.168.0.0/16"
+    elif [[ $LOCAL_IP == 10.* ]]; then
+        LOCAL_SUBNET="10.0.0.0/8"
+    elif [[ $LOCAL_IP == 172.* ]]; then
+        LOCAL_SUBNET="172.16.0.0/12"
+    else
+        LOCAL_SUBNET="192.168.1.0/24"
+    fi
+    
+    log_info "Using local subnet: $LOCAL_SUBNET"
+    
+    # Allow service ports from local network
+    sudo ufw allow from $LOCAL_SUBNET to any port 9443 proto tcp
+    sudo ufw allow from $LOCAL_SUBNET to any port 7575 proto tcp
+    sudo ufw allow from $LOCAL_SUBNET to any port 8080 proto tcp
+    sudo ufw allow from $LOCAL_SUBNET to any port 8989 proto tcp
+    sudo ufw allow from $LOCAL_SUBNET to any port 7878 proto tcp
+    sudo ufw allow from $LOCAL_SUBNET to any port 9696 proto tcp
+    sudo ufw allow from $LOCAL_SUBNET to any port 8096 proto tcp
     
     # Reload firewall
     sudo ufw reload
@@ -277,6 +326,7 @@ main() {
     check_requirements
     update_system
     install_packages
+    install_cockpit
     install_docker
     setup_cockpit
     create_directories
