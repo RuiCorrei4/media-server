@@ -167,34 +167,31 @@ create_directories() {
 
 # Configure firewall
 configure_firewall() {
-    log_info "Configuring firewall..."
+    log_info "Configuring firewall for LOCAL ONLY access..."
     
     # Enable UFW
     sudo ufw --force enable
     
-    # Allow SSH
+    # Allow SSH (for remote management)
     sudo ufw allow OpenSSH
-    
-    # Allow HTTP/HTTPS
-    sudo ufw allow 80/tcp
-    sudo ufw allow 443/tcp
     
     # Allow Cockpit
     sudo ufw allow 9090/tcp
     
-    # Allow service ports
-    sudo ufw allow "${PORTAINER_PORT:-9443}/tcp"
-    sudo ufw allow "${HOMARR_PORT:-7575}/tcp"
-    sudo ufw allow "${QBITTORRENT_PORT:-8080}/tcp"
-    sudo ufw allow "${SONARR_PORT:-8989}/tcp"
-    sudo ufw allow "${RADARR_PORT:-7878}/tcp"
-    sudo ufw allow "${PROWLARR_PORT:-9696}/tcp"
-    sudo ufw allow "${JELLYFIN_PORT:-8096}/tcp"
+    # Allow services on local network only
+    # These will only be accessible from your LAN
+    sudo ufw allow from 192.168.0.0/16 to any port 9443 proto tcp
+    sudo ufw allow from 192.168.0.0/16 to any port 7575 proto tcp
+    sudo ufw allow from 192.168.0.0/16 to any port 8080 proto tcp
+    sudo ufw allow from 192.168.0.0/16 to any port 8989 proto tcp
+    sudo ufw allow from 192.168.0.0/16 to any port 7878 proto tcp
+    sudo ufw allow from 192.168.0.0/16 to any port 9696 proto tcp
+    sudo ufw allow from 192.168.0.0/16 to any port 8096 proto tcp
     
     # Reload firewall
     sudo ufw reload
     
-    log_success "Firewall configured"
+    log_success "Firewall configured for local access only"
 }
 
 # Setup environment file
